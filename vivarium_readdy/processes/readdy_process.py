@@ -7,7 +7,7 @@ from vivarium.core.composition import simulate_process
 from tqdm import tqdm
 import readdy
 
-NAME = "ReaDDy"
+NAME = "READDY"
 
 
 class ReaddyProcess(Process):
@@ -27,6 +27,7 @@ class ReaddyProcess(Process):
         "force_constant": 250.0,
         "n_cpu": 4,
         "particle_radii": {},
+        "topology_particles": [],
         "reactions": [],
     }
 
@@ -118,7 +119,7 @@ class ReaddyProcess(Process):
         )
         self.parameters["temperature_K"] = self.parameters["temperature_C"] + 273.15
         self.system.temperature = self.parameters["temperature_K"]
-        self.add_particle_species(states)
+        self.add_particle_species()
         self.add_topology_types(states)
         all_particle_types = set()
         for particle_id in states["particles"]:
@@ -145,43 +146,24 @@ class ReaddyProcess(Process):
             / 10 ** 9
         )
 
-    def add_particle_species(self, states):
+    def add_particle_species(self):
         """
-        Add all (non-topology) particle species
+        Add all particle species
         """
-        # add species for each topology particle
-        topology_particle_ids = []
         added_particle_types = []
-        for topology_id in states["topologies"]:
-            topology = states["topologies"][topology_id]
-            topology_particle_ids += topology["particle_ids"]
-            for particle_id in topology["particle_ids"]:
-                particle = states["particles"][particle_id]
-                if particle["type_name"] in added_particle_types:
-                    continue
-                print(particle["type_name"])
-                diffCoeff = ReaddyProcess.calculate_diffusionCoefficient(
-                    self.parameters["particle_radii"][particle["type_name"]], 
-                    self.parameters["viscosity"], 
-                    self.parameters["temperature_K"],
-                )
-                self.system.add_topology_species(particle["type_name"], diffCoeff)
-                added_particle_types.append(particle["type_name"])
-        # add species for each non-topology particle
-        for particle_id in states["particles"]:
-            if particle_id in topology_particle_ids:
+        for particle_name in self.parameters["particle_radii"]:
+            if particle_name in added_particle_types:
                 continue
-            particle = states["particles"][particle_id]
-            if particle["type_name"] in added_particle_types:
-                continue
-            print(particle["type_name"])
             diffCoeff = ReaddyProcess.calculate_diffusionCoefficient(
-                self.parameters["particle_radii"][particle["type_name"]], 
+                self.parameters["particle_radii"][particle_name], 
                 self.parameters["viscosity"], 
                 self.parameters["temperature_K"],
             )
-            self.system.add_species(particle["type_name"], diffCoeff)
-            added_particle_types.append(particle["type_name"])
+            if particle_name in self.parameters["topology_particles"]:
+                self.system.add_topology_species(particle_name, diffCoeff)
+            else:
+                self.system.add_species(particle_name, diffCoeff)
+            added_particle_types.append(particle_name)
 
     def add_topology_types(self, states):
         """
@@ -324,14 +306,14 @@ class ReaddyProcess(Process):
         Simulate in ReaDDy for the given timestep
         """
         def loop():
-            readdy_actions = self.readdy_simulation._actions
+            readdy_actions = self.simulation._actions
             init = readdy_actions.initialize_kernel()
             diffuse = readdy_actions.integrator_euler_brownian_dynamics(
                 self.parameters["internal_timestep"]
             )
             calculate_forces = readdy_actions.calculate_forces()
             create_nl = readdy_actions.create_neighbor_list(
-                self.readdy_system.calculate_max_cutoff().magnitude
+                self.system.calculate_max_cutoff().magnitude
             )
             update_nl = readdy_actions.update_neighbor_list()
             react = readdy_actions.reaction_handler_uncontrolled_approximation(
@@ -351,7 +333,7 @@ class ReaddyProcess(Process):
                 update_nl()
                 calculate_forces()
                 observe(t)
-        self.readdy_simulation._run_custom_loop(loop)
+        self.simulation._run_custom_loop(loop)
 
     def current_particle_edges(self):
         """
@@ -464,30 +446,36 @@ class ReaddyProcess(Process):
 
 
 def test_readdy_process():
-    readdy_process = ReaddyProcess(
-        {
-            "particle_radii": {
-                "A": 1.,
-                "B": 1.,
-                "C": 2.,
-                "D": 4.,
-            },
-            "reactions": [
-                {
-                    "descriptor": "enz: A +(3) C -> B + C",
-                    "rate": 0.1,
-                }
-            ],
-        }
-    )
-    output = simulate_process(
-        readdy_process,
-        {
-            "initial_state": readdy_process.initial_state(), 
-            "total_time": 100, 
-            "return_raw_data": True
+    readdy_process = ReaddyProcess({
+        "particle_radii": {
+            "A": 1.,
+            "B": 1.,
+            "C": 2.,
+            "D": 4.,
         },
+        "topology_particles": [
+            "D",
+        ],
+        "reactions": [
+            {
+                "descriptor": "enz: A +(3) C -> B + C",
+                "rate": 0.1,
+            }
+        ],
+    })
+    engine = Engine(
+        processes={'readdy': readdy_process},
+        topology={
+            'readdy': {
+                'box_size': ('box_size',),
+                'topologies': ('topologies',),
+                'particles': ('particles',)}},
+        initial_state=readdy_process.initial_state(),
+        emitter='simularium',
     )
+    engine.update(1.0)  # 10 steps
+    output = engine.emitter.get_data()
+    print(pf(output))
 
 
 if __name__ == "__main__":

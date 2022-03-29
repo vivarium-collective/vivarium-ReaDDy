@@ -39,6 +39,7 @@ dev_requirements = [
 
 requirements = [
     "vivarium-core>=1.0.0",
+    "simulariumio>=1.5.0"
 ]
 
 extra_requirements = {
