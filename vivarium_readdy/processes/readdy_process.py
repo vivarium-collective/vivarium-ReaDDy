@@ -2,7 +2,6 @@ import numpy as np
 
 from vivarium.core.process import Process
 from vivarium.core.engine import Engine, pf
-from vivarium.core.composition import simulate_process
 
 from tqdm import tqdm
 import readdy
@@ -12,7 +11,7 @@ NAME = "READDY"
 
 class ReaddyProcess(Process):
     """
-    This process uses ReaDDy to model arbitrary 
+    This process uses ReaDDy to model arbitrary
     reaction diffusion systems
     """
 
@@ -37,7 +36,7 @@ class ReaddyProcess(Process):
     def ports_schema(self):
         return {
             "box_size": {
-                "_default": 100.,
+                "_default": 100.0,
                 "_updater": "set",
                 "_emit": True,
             },
@@ -73,7 +72,7 @@ class ReaddyProcess(Process):
                         "_emit": True,
                     },
                 }
-            }
+            },
         }
 
     def next_update(self, timestep, states):
@@ -104,7 +103,7 @@ class ReaddyProcess(Process):
                 particles_update["_delete"].append(existing_id)
         return {
             "box_size": states["box_size"],
-            "topologies": topologies_update, 
+            "topologies": topologies_update,
             "particles": particles_update,
         }
 
@@ -115,7 +114,8 @@ class ReaddyProcess(Process):
         """
         self.system = readdy.ReactionDiffusionSystem(
             box_size=[self.parameters["box_size"]] * 3,
-            periodic_boundary_conditions=3 * [bool(self.parameters["periodic_boundary"])],
+            periodic_boundary_conditions=3
+            * [bool(self.parameters["periodic_boundary"])],
         )
         self.parameters["temperature_K"] = self.parameters["temperature_C"] + 273.15
         self.system.temperature = self.parameters["temperature_K"]
@@ -143,7 +143,7 @@ class ReaddyProcess(Process):
         return (
             (1.38065 * 10 ** (-23) * T)
             / (6 * np.pi * eta * 10 ** (-3) * radius * 10 ** (-9))
-            / 10 ** 9
+            / 10**9
         )
 
     def add_particle_species(self):
@@ -155,8 +155,8 @@ class ReaddyProcess(Process):
             if particle_name in added_particle_types:
                 continue
             diffCoeff = ReaddyProcess.calculate_diffusionCoefficient(
-                self.parameters["particle_radii"][particle_name], 
-                self.parameters["viscosity"], 
+                self.parameters["particle_radii"][particle_name],
+                self.parameters["viscosity"],
                 self.parameters["temperature_K"],
             )
             if particle_name in self.parameters["topology_particles"]:
@@ -178,7 +178,7 @@ class ReaddyProcess(Process):
     def check_add_global_box_potential(self, states, all_particle_types):
         """
         If the boundaries are not periodic,
-        add a box potential for all particles 
+        add a box potential for all particles
         to keep them in the box volume
         (margin of 1.0 units on each side)
         """
@@ -213,11 +213,11 @@ class ReaddyProcess(Process):
                 self.system.potentials.add_harmonic_repulsion(
                     type1,
                     type2,
-                    force_constant=self.parameters["force_constant"], 
+                    force_constant=self.parameters["force_constant"],
                     interaction_distance=(
-                        self.parameters["particle_radii"][type1] 
+                        self.parameters["particle_radii"][type1]
                         + self.parameters["particle_radii"][type2]
-                    )
+                    ),
                 )
 
     def add_bonds(self, states):
@@ -234,11 +234,11 @@ class ReaddyProcess(Process):
                 if (type1, type2) in added_bonds or (type2, type1) in added_bonds:
                     continue
                 self.system.topologies.configure_harmonic_bond(
-                    type1, 
-                    type2, 
-                    force_constant=self.parameters["force_constant"], 
+                    type1,
+                    type2,
+                    force_constant=self.parameters["force_constant"],
                     length=(
-                        self.parameters["particle_radii"][type1] 
+                        self.parameters["particle_radii"][type1]
                         + self.parameters["particle_radii"][type2]
                     ),
                 )
@@ -279,9 +279,7 @@ class ReaddyProcess(Process):
             )
             added_edges = []
             for index, particle_id in enumerate(topology["particle_ids"]):
-                for neighbor_id in states["particles"][particle_id][
-                    "neighbor_ids"
-                ]:
+                for neighbor_id in states["particles"][particle_id]["neighbor_ids"]:
                     neighbor_index = topology["particle_ids"].index(neighbor_id)
                     if (index, neighbor_index) not in added_edges and (
                         neighbor_index,
@@ -297,14 +295,14 @@ class ReaddyProcess(Process):
                 continue
             particle = states["particles"][particle_id]
             self.simulation.add_particle(
-                type=particle["type_name"], 
-                position=particle["position"]
+                type=particle["type_name"], position=particle["position"]
             )
 
     def simulate_readdy(self, timestep):
         """
         Simulate in ReaDDy for the given timestep
         """
+
         def loop():
             readdy_actions = self.simulation._actions
             init = readdy_actions.initialize_kernel()
@@ -333,6 +331,7 @@ class ReaddyProcess(Process):
                 update_nl()
                 calculate_forces()
                 observe(t)
+
         self.simulation._run_custom_loop(loop)
 
     def current_particle_edges(self):
@@ -391,15 +390,17 @@ class ReaddyProcess(Process):
         return result
 
     def initial_state(self, config=None):
-        box_size = 100. * np.ones(3)
+        box_size = 100.0 * np.ones(3)
         n_particles_substrate = 100
         n_particles_enzyme = 5
         n_particles_chain = 20
-        chain_particle_radius = 2.
+        chain_particle_radius = 2.0
         particles = {}
         last_id = 0
         # substrate particles
-        substrate_positions = (np.random.uniform(size=(n_particles_substrate, 3)) - 0.5) * box_size
+        substrate_positions = (
+            np.random.uniform(size=(n_particles_substrate, 3)) - 0.5
+        ) * box_size
         for position in substrate_positions:
             particles[last_id] = {
                 "type_name": "A",
@@ -408,7 +409,9 @@ class ReaddyProcess(Process):
             }
             last_id += 1
         # enzyme particles
-        enzyme_positions = (np.random.uniform(size=(n_particles_enzyme, 3)) - 0.5) * box_size
+        enzyme_positions = (
+            np.random.uniform(size=(n_particles_enzyme, 3)) - 0.5
+        ) * box_size
         for position in enzyme_positions:
             particles[last_id] = {
                 "type_name": "C",
@@ -441,37 +444,41 @@ class ReaddyProcess(Process):
                     "particle_ids": chain_particle_ids,
                 }
             },
-            "particles": particles
+            "particles": particles,
         }
 
 
 def test_readdy_process():
-    readdy_process = ReaddyProcess({
-        "particle_radii": {
-            "A": 1.,
-            "B": 1.,
-            "C": 2.,
-            "D": 4.,
-        },
-        "topology_particles": [
-            "D",
-        ],
-        "reactions": [
-            {
-                "descriptor": "enz: A +(3) C -> B + C",
-                "rate": 0.1,
-            }
-        ],
-    })
+    readdy_process = ReaddyProcess(
+        {
+            "particle_radii": {
+                "A": 1.0,
+                "B": 1.0,
+                "C": 2.0,
+                "D": 4.0,
+            },
+            "topology_particles": [
+                "D",
+            ],
+            "reactions": [
+                {
+                    "descriptor": "enz: A +(3) C -> B + C",
+                    "rate": 0.1,
+                }
+            ],
+        }
+    )
     engine = Engine(
-        processes={'readdy': readdy_process},
+        processes={"readdy": readdy_process},
         topology={
-            'readdy': {
-                'box_size': ('box_size',),
-                'topologies': ('topologies',),
-                'particles': ('particles',)}},
+            "readdy": {
+                "box_size": ("box_size",),
+                "topologies": ("topologies",),
+                "particles": ("particles",),
+            }
+        },
         initial_state=readdy_process.initial_state(),
-        emitter='simularium',
+        emitter="simularium",
     )
     engine.update(1.0)  # 10 steps
     output = engine.emitter.get_data()

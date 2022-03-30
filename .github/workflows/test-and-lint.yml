@@ -1,0 +1,62 @@
+name: Test and Lint
+
+on: pull_request
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        python-version: [3.9]
+        os: [ubuntu-latest]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup MiniConda
+      uses: conda-incubator/setup-miniconda@v2
+      with:
+        auto-update-conda: true
+        python-version: 3.9
+        channels: readdy/label/dev,conda-forge
+    - name: Install Conda Deps
+      shell: bash -l {0}
+      run: |
+        conda install readdy
+    - name: Install Dependencies
+      shell: bash -l {0}
+      run: |
+        python -m pip install --upgrade pip
+        pip install .[test]
+    - name: Test with pytest
+      shell: bash -l {0}
+      run: |
+        pytest vivarium_readdy/tests/
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup MiniConda
+      uses: conda-incubator/setup-miniconda@v2
+      with:
+        auto-update-conda: true
+        python-version: 3.9
+        channels: readdy/label/dev,conda-forge
+    - name: Install Conda Deps
+      shell: bash -l {0}
+      run: |
+        conda install readdy
+    - name: Install Dependencies
+      shell: bash -l {0}
+      run: |
+        python -m pip install --upgrade pip
+        pip install .[test]
+    - name: Lint with flake8
+      shell: bash -l {0}
+      run: |
+        flake8 vivarium_readdy --count --verbose --show-source --statistics
+    - name: Check with black
+      shell: bash -l {0}
+      run: |
+        black --check vivarium_readdy

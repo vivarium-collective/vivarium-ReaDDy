@@ -1,0 +1,102 @@
+name: Build Main
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    # <minute [0,59]> <hour [0,23]> <day of the month [1,31]> <month of the year [1,12]> <day of the week [0,6]>
+    # https://pubs.opengroup.org/onlinepubs/9699919799/utilities/crontab.html#tag_20_25_07
+    # Run every Monday at 18:00:00 UTC (Monday at 10:00:00 PST)
+    - cron: '0 18 * * 1'
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9]
+        os: [ubuntu-latest]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup MiniConda
+      uses: conda-incubator/setup-miniconda@v2
+      with:
+        auto-update-conda: true
+        python-version: 3.9
+        channels: readdy/label/dev,conda-forge
+    - name: Install Conda Deps
+      shell: bash -l {0}
+      run: |
+        conda install readdy
+    - name: Install Dependencies
+      shell: bash -l {0}
+      run: |
+        python -m pip install --upgrade pip
+        pip install .[test]
+    - name: Test with pytest
+      shell: bash -l {0}
+      run: |
+        pytest --cov-report xml --cov=vivarium_readdy vivarium_readdy/tests/
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup MiniConda
+      uses: conda-incubator/setup-miniconda@v2
+      with:
+        auto-update-conda: true
+        python-version: 3.9
+        channels: readdy/label/dev,conda-forge
+    - name: Install Conda Deps
+      shell: bash -l {0}
+      run: |
+        conda install readdy
+    - name: Install Dependencies
+      shell: bash -l {0}
+      run: |
+        python -m pip install --upgrade pip
+        pip install .[test]
+    - name: Lint with flake8
+      shell: bash -l {0}
+      run: |
+        flake8 vivarium_readdy --count --verbose --show-source --statistics
+    - name: Check with black
+      shell: bash -l {0}
+      run: |
+        black --check vivarium_readdy
+
+  publish:
+    if: "contains(github.event.head_commit.message, 'Bump version')"
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup MiniConda
+      uses: conda-incubator/setup-miniconda@v2
+      with:
+        auto-update-conda: true
+        python-version: 3.9
+        channels: readdy/label/dev,conda-forge
+    - name: Install Conda Deps
+      shell: bash -l {0}
+      run: |
+        conda install readdy
+    - name: Install Dependencies
+      shell: bash -l {0}
+      run: |
+        python -m pip install --upgrade pip
+        pip install setuptools wheel
+    - name: Build Package
+      shell: bash -l {0}
+      run: |
+        python setup.py sdist bdist_wheel
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@master
+      with:
+        user: abq
+        password: ${{ secrets.PYPI_TOKEN }}

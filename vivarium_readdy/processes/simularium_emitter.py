@@ -20,6 +20,7 @@ VIZ_FOR_CHOICE = {
     "init": "fibers",
 }
 
+
 class SimulariumEmitter(Emitter):
     def __init__(self, config: Dict[str, str]) -> None:
         super().__init__(config)
@@ -233,10 +234,10 @@ class SimulariumEmitter(Emitter):
         """
         Determine the active simulator
         """
-        current_choice = None
         for choice in choices:
             if choices[choice]:
                 return choice
+        return None
 
     def get_data(self) -> dict:
         """
@@ -263,19 +264,18 @@ class SimulariumEmitter(Emitter):
         vizualize_time_index = 0
         for time, state in self.saved_data.items():
             index = times.index(time)
-            prev_choice = SimulariumEmitter.get_active_choice(
-                self.saved_data[times[index - 1]]["choices"]
-            ) if index > 0 else "init"
             current_choice = SimulariumEmitter.get_active_choice(state["choices"])
             if box_dimensions is None and "fibers_box_extent" in state:
                 box_dimensions = np.array(state["fibers_box_extent"])
             if VIZ_FOR_CHOICE[current_choice] == "fibers":
-                center_fibers = index == 0 or "readdy_active" in state["choices"] #TODO generalize
+                center_fibers = (
+                    index == 0 or "readdy_active" in state["choices"]
+                )  # TODO generalize
                 trajectory = self.get_simularium_fibers(
                     vizualize_time_index,
                     state["fibers"],
                     actin_radius,
-                    - 0.5 * box_dimensions if center_fibers else np.zeros(3),
+                    -0.5 * box_dimensions if center_fibers else np.zeros(3),
                     trajectory,
                 )
                 vizualize_time_index += 1
@@ -284,10 +284,7 @@ class SimulariumEmitter(Emitter):
                     vizualize_time_index,
                     state["monomers"],
                     actin_radius,
-                    (
-                        np.array(state["monomers"]["box_center"])
-                        - 0.5 * box_dimensions
-                    ),
+                    (np.array(state["monomers"]["box_center"]) - 0.5 * box_dimensions),
                     trajectory,
                 )
                 vizualize_time_index += 1

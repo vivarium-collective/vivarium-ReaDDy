@@ -5,9 +5,9 @@ helps, and credit will always be given.
 
 ## Get Started!
 
-Ready to contribute? Here's how to set up `vivarium_readdy` for local development.
+Ready to contribute? Here's how to set up `vivarium-ReaDDy` for local development.
 
-1. Fork the `vivarium_readdy` repo on GitHub.
+1. Fork the `vivarium-ReaDDy` repo on GitHub.
 
 2. Clone your fork locally:
 
@@ -18,7 +18,7 @@ Ready to contribute? Here's how to set up `vivarium_readdy` for local developmen
 3. Install the project in editable mode. (It is also recommended to work in a virtualenv or anaconda environment):
 
     ```bash
-    cd vivarium_readdy/
+    cd vivarium-ReaDDy/
     pip install -e .[dev]
     ```
 

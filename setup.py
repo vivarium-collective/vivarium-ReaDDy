@@ -38,8 +38,8 @@ dev_requirements = [
 ]
 
 requirements = [
-    "vivarium-core>=1.0.0",
-    "simulariumio>=1.5.0"
+    "vivarium-core",
+    "simulariumio>=1.5.0",
 ]
 
 extra_requirements = {
@@ -60,30 +60,24 @@ setup(
         "Intended Audience :: Developers",
         "License :: OSI Approved :: Apache Software License",
         "Natural Language :: English",
-        "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
     ],
     description="A Vivarium wrapper for ReaDDy",
-    entry_points={
-        "console_scripts": [
-            "my_example=vivarium_readdy.bin.my_example:main"
-        ],
-    },
     install_requires=requirements,
     license="Apache Software License 2.0",
     long_description=readme,
     long_description_content_type="text/markdown",
     include_package_data=True,
-    keywords="vivarium_readdy",
+    keywords=["vivarium", "readdy"],
     name="vivarium_readdy",
     packages=find_packages(exclude=["tests", "*.tests", "*.tests.*"]),
-    python_requires=">=3.7",
+    python_requires=">=3.8",
     setup_requires=setup_requirements,
     test_suite="vivarium_readdy/tests",
     tests_require=test_requirements,
     extras_require=extra_requirements,
-    url="https://github.com/vivarium-collective/vivarium_readdy",
+    url="https://github.com/vivarium-collective/vivarium-ReaDDy",
     # Do not edit this string manually, always use bumpversion
     # Details in CONTRIBUTING.rst
     version="0.0.0",
