@@ -1,7 +1,7 @@
 import numpy as np
 
 from vivarium.core.process import Process
-from vivarium.core.engine import Engine, pf
+from vivarium.core.engine import Engine
 
 from tqdm import tqdm
 import readdy
@@ -376,7 +376,7 @@ class ReaddyProcess(Process):
         }
 
 
-def test_readdy_process():
+def run_readdy_process():
     readdy_process = ReaddyProcess(
         {
             "particle_radii": {
@@ -402,22 +402,15 @@ def test_readdy_process():
             ],
         }
     )
+    composite = readdy_process.generate()
     engine = Engine(
-        processes={"readdy": readdy_process},
-        topology={
-            "readdy": {
-                "box_size": ("box_size",),
-                "topologies": ("topologies",),
-                "particles": ("particles",),
-            }
-        },
+        composite=composite,
         initial_state=readdy_process.initial_state(),
         emitter="simularium",
     )
     engine.update(1.0)  # 10 steps
-    output = engine.emitter.get_data()
-    print(pf(output))
+    engine.emitter.get_data()
 
 
 if __name__ == "__main__":
-    test_readdy_process()
+    run_readdy_process()
