@@ -29,7 +29,9 @@ class ReaddyProcess(Process):
         "force_constant": 250.0,
         "n_cpu": 4,
         "particle_radii": {},
+        "topology_types": [],
         "topology_particles": [],
+        "bond_pairs": [],
         "reactions": [],
         "time_units": "s",
         "spatial_units": "m",
@@ -37,19 +39,19 @@ class ReaddyProcess(Process):
 
     def __init__(self, parameters=None):
         super(ReaddyProcess, self).__init__(parameters)
+        self.create_readdy_system()
 
     def ports_schema(self):
         return monomer_ports_schema
 
     def next_update(self, timestep, states):
-        self.create_readdy_system(states)
         self.create_readdy_simulation()
         self.add_particle_instances(states)
         self.simulate_readdy(timestep)
         new_monomers = self.get_current_monomers()
         return create_monomer_update(states["monomers"], new_monomers)
 
-    def create_readdy_system(self, states):
+    def create_readdy_system(self):
         """
         Create the ReaDDy system
         including particle species, constraints, and reactions
@@ -62,14 +64,11 @@ class ReaddyProcess(Process):
         self.parameters["temperature_K"] = self.parameters["temperature_C"] + 273.15
         self.system.temperature = self.parameters["temperature_K"]
         self.add_particle_species()
-        self.add_topology_types(states)
-        all_particle_types = set()
-        for particle_id in states["particles"]:
-            particle = states["particles"][particle_id]
-            all_particle_types.add(particle["type_name"])
-        self.check_add_global_box_potential(states, all_particle_types)
+        self.add_topology_types()
+        all_particle_types = self.parameters["particle_radii"].keys()
+        self.check_add_global_box_potential(all_particle_types)
         self.add_repulsions(all_particle_types)
-        self.add_bonds(states)
+        self.add_bonds()
         self.add_reactions()
 
     @staticmethod
@@ -111,17 +110,14 @@ class ReaddyProcess(Process):
                 self.system.add_species(particle_name, diffCoeff)
             added_particle_types.append(particle_name)
 
-    def add_topology_types(self, states):
+    def add_topology_types(self):
         """
         Add all topology types
         """
-        topology_types = set()
-        for topology_id in states["topologies"]:
-            topology_types.add(states["topologies"][topology_id]["type_name"])
-        for topology_type in topology_types:
+        for topology_type in self.parameters["topology_types"]:
             self.system.topologies.add_type(topology_type)
 
-    def check_add_global_box_potential(self, states, all_particle_types):
+    def check_add_global_box_potential(self, all_particle_types):
         """
         If the boundaries are not periodic,
         add a box potential for all particles
@@ -145,51 +141,31 @@ class ReaddyProcess(Process):
         to enforce volume exclusion
         """
         for type1 in all_particle_types:
-            if type1 not in self.parameters["particle_radii"]:
-                raise Exception(
-                    "Please provide a radius for particle type "
-                    f"{type1} in parameters['particle_radii']"
-                )
             for type2 in all_particle_types:
-                if type2 not in self.parameters["particle_radii"]:
-                    raise Exception(
-                        "Please provide a radius for particle type "
-                        f"{type1} in parameters['particle_radii']"
-                    )
                 self.system.potentials.add_harmonic_repulsion(
                     type1,
                     type2,
                     force_constant=self.parameters["force_constant"],
                     interaction_distance=(
-                        self.parameters["particle_radii"][type1]
-                        + self.parameters["particle_radii"][type2]
+                        self.parameters["particle_radii"].get(type1, 1.0)
+                        + self.parameters["particle_radii"].get(type2, 1.0)
                     ),
                 )
 
-    def add_bonds(self, states):
+    def add_bonds(self):
         """
         Add harmonic bonds
         """
-        added_bonds = []
-        for particle_id in states["particles"]:
-            particle = states["particles"][particle_id]
-            for neighbor_id in particle["neighbor_ids"]:
-                neighbor = states["particles"][neighbor_id]
-                type1 = particle["type_name"]
-                type2 = neighbor["type_name"]
-                if (type1, type2) in added_bonds or (type2, type1) in added_bonds:
-                    continue
-                self.system.topologies.configure_harmonic_bond(
-                    type1,
-                    type2,
-                    force_constant=self.parameters["force_constant"],
-                    length=(
-                        self.parameters["particle_radii"][type1]
-                        + self.parameters["particle_radii"][type2]
-                    ),
-                )
-                added_bonds.append((type1, type2))
-                added_bonds.append((type2, type1))
+        for bond_pair in self.parameters["bond_pairs"]:
+            self.system.topologies.configure_harmonic_bond(
+                bond_pair[0],
+                bond_pair[1],
+                force_constant=self.parameters["force_constant"],
+                length=(
+                    self.parameters["particle_radii"].get(bond_pair[0], 1.0)
+                    + self.parameters["particle_radii"].get(bond_pair[1], 1.0)
+                ),
+            )
 
     def add_reactions(self):
         """
@@ -278,7 +254,7 @@ class ReaddyProcess(Process):
                 calculate_forces()
                 observe(t)
 
-        self.simulation._run_custom_loop(loop)
+        self.simulation._run_custom_loop(loop, show_summary=False)
 
     def current_particle_edges(self):
         """
@@ -405,8 +381,14 @@ def test_readdy_process():
                 "C": 2.0,
                 "D": 4.0,
             },
+            "topology_types": [
+                "Chain",
+            ],
             "topology_particles": [
                 "D",
+            ],
+            "bond_pairs": [
+                ["D", "D"],
             ],
             "reactions": [
                 {
