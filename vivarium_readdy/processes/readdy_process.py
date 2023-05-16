@@ -5,6 +5,7 @@ from vivarium.core.engine import Engine, pf
 
 from tqdm import tqdm
 import readdy
+from pint import UnitRegistry
 
 from ..util import monomer_ports_schema, create_monomer_update
 
@@ -20,16 +21,18 @@ class ReaddyProcess(Process):
     name = NAME
 
     defaults = {
-        "internal_timestep": 0.1,  # s
-        "box_size": 100.0,  # m
+        "internal_timestep": 0.1,
+        "box_size": 100.0,
         "periodic_boundary": False,
         "temperature_C": 22.0,
-        "viscosity": 8.1,  # cP, viscosity in cytoplasm
+        "viscosity": 1.0,  # cP
         "force_constant": 250.0,
         "n_cpu": 4,
         "particle_radii": {},
         "topology_particles": [],
         "reactions": [],
+        "time_units": "s",
+        "spatial_units": "m",
     }
 
     def __init__(self, parameters=None):
@@ -70,19 +73,22 @@ class ReaddyProcess(Process):
         self.add_reactions()
 
     @staticmethod
-    def calculate_diffusionCoefficient(radius, eta, T):
+    def calculate_diffusionCoefficient(radius, viscosity, temperature, spatial_units):
         """
         calculate the theoretical diffusion constant of a spherical particle
-            with radius [m]
-            in a media with viscosity eta [cP]
-            at temperature T [Kelvin]
+            with radius [spatial_units]
+            in a media with viscosity [cP]
+            at temperature [Kelvin]
 
-            returns m^2/s
+            returns [spatial_units^2/s]
         """
+        ureg = UnitRegistry()
+        convert_to_nm = ureg(spatial_units).to("m").magnitude
         return (
-            (1.38065 * 10 ** (-23) * T)
-            / (6 * np.pi * eta * 10 ** (-3) * radius * 10 ** (-9))
+            (1.38065 * 10 ** (-23) * temperature)
+            / (6 * np.pi * viscosity * 10 ** (-3) * radius * convert_to_nm)
             / 10**9
+            / (convert_to_nm * convert_to_nm)
         )
 
     def add_particle_species(self):
@@ -97,6 +103,7 @@ class ReaddyProcess(Process):
                 self.parameters["particle_radii"][particle_name],
                 self.parameters["viscosity"],
                 self.parameters["temperature_K"],
+                self.parameters["spatial_units"],
             )
             if particle_name in self.parameters["topology_particles"]:
                 self.system.add_topology_species(particle_name, diffCoeff)
