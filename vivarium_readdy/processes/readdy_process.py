@@ -6,6 +6,8 @@ from vivarium.core.engine import Engine, pf
 from tqdm import tqdm
 import readdy
 
+from ..util import monomer_ports_schema, create_monomer_update
+
 NAME = "READDY"
 
 
@@ -34,78 +36,15 @@ class ReaddyProcess(Process):
         super(ReaddyProcess, self).__init__(parameters)
 
     def ports_schema(self):
-        return {
-            "box_size": {
-                "_default": 100.0,
-                "_updater": "set",
-                "_emit": True,
-            },
-            "topologies": {
-                "*": {
-                    "type_name": {
-                        "_default": "",
-                        "_updater": "set",
-                        "_emit": True,
-                    },
-                    "particle_ids": {
-                        "_default": [],
-                        "_updater": "set",
-                        "_emit": True,
-                    },
-                }
-            },
-            "particles": {
-                "*": {
-                    "type_name": {
-                        "_default": "",
-                        "_updater": "set",
-                        "_emit": True,
-                    },
-                    "position": {
-                        "_default": np.zeros(3),
-                        "_updater": "set",
-                        "_emit": True,
-                    },
-                    "neighbor_ids": {
-                        "_default": [],
-                        "_updater": "set",
-                        "_emit": True,
-                    },
-                }
-            },
-        }
+        return monomer_ports_schema
 
     def next_update(self, timestep, states):
         self.create_readdy_system(states)
         self.create_readdy_simulation()
         self.add_particle_instances(states)
         self.simulate_readdy(timestep)
-        current_state = self.get_current_state()
-        # update topologies
-        topologies_update = {"_add": [], "_delete": []}
-        for id, state in current_state["topologies"].items():
-            if id in states["topologies"]:
-                topologies_update[id] = state
-            else:
-                topologies_update["_add"].append({"key": id, "state": state})
-        for existing_id in states["topologies"].keys():
-            if existing_id not in current_state["topologies"]:
-                topologies_update["_delete"].append(existing_id)
-        # update particles
-        particles_update = {"_add": [], "_delete": []}
-        for id, state in current_state["particles"].items():
-            if id in states["particles"]:
-                particles_update[id] = state
-            else:
-                particles_update["_add"].append({"key": id, "state": state})
-        for existing_id in states["particles"].keys():
-            if existing_id not in current_state["particles"]:
-                particles_update["_delete"].append(existing_id)
-        return {
-            "box_size": states["box_size"],
-            "topologies": topologies_update,
-            "particles": particles_update,
-        }
+        new_monomers = self.get_current_monomers()
+        return create_monomer_update(states["monomers"], new_monomers)
 
     def create_readdy_system(self, states):
         """
@@ -349,7 +288,7 @@ class ReaddyProcess(Process):
                     result.append((p1_id, p2_id))
         return result
 
-    def get_current_state(self):
+    def get_current_monomers(self):
         """
         Get data for topologies of particles
         from readdy.simulation.current_topologies
@@ -437,14 +376,16 @@ class ReaddyProcess(Process):
             chain_particle_ids.append(particle_id)
             chain_position += 2 * chain_particle_radius * np.random.uniform(3)
         return {
-            "box_size": box_size,
-            "topologies": {
-                0: {
-                    "type_name": "Chain",
-                    "particle_ids": chain_particle_ids,
-                }
+            "monomers": {
+                "box_size": box_size,
+                "topologies": {
+                    0: {
+                        "type_name": "Chain",
+                        "particle_ids": chain_particle_ids,
+                    }
+                },
+                "particles": particles,
             },
-            "particles": particles,
         }
 
 
