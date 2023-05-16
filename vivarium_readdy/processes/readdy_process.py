@@ -46,7 +46,7 @@ class ReaddyProcess(Process):
 
     def next_update(self, timestep, states):
         self.create_readdy_simulation()
-        self.add_particle_instances(states)
+        self.add_particle_instances(states["monomers"])
         self.simulate_readdy(timestep)
         new_monomers = self.get_current_monomers()
         return create_monomer_update(states["monomers"], new_monomers)
@@ -181,19 +181,19 @@ class ReaddyProcess(Process):
         self.simulation = self.system.simulation("CPU")
         self.simulation.kernel_configuration.n_threads = self.parameters["n_cpu"]
 
-    def add_particle_instances(self, states):
+    def add_particle_instances(self, monomers):
         """
         Add particle instances to the simulation
         """
         # add topology particles
         topology_particle_ids = []
-        for topology_id in states["topologies"]:
-            topology = states["topologies"][topology_id]
+        for topology_id in monomers["topologies"]:
+            topology = monomers["topologies"][topology_id]
             topology_particle_ids += topology["particle_ids"]
             types = []
             positions = []
             for particle_id in topology["particle_ids"]:
-                particle = states["particles"][particle_id]
+                particle = monomers["particles"][particle_id]
                 types.append(particle["type_name"])
                 positions.append(particle["position"])
             top = self.simulation.add_topology(
@@ -201,7 +201,7 @@ class ReaddyProcess(Process):
             )
             added_edges = []
             for index, particle_id in enumerate(topology["particle_ids"]):
-                for neighbor_id in states["particles"][particle_id]["neighbor_ids"]:
+                for neighbor_id in monomers["particles"][particle_id]["neighbor_ids"]:
                     neighbor_index = topology["particle_ids"].index(neighbor_id)
                     if (index, neighbor_index) not in added_edges and (
                         neighbor_index,
@@ -212,10 +212,10 @@ class ReaddyProcess(Process):
                     added_edges.append((index, neighbor_index))
                     added_edges.append((neighbor_index, index))
         # add non-topology particles
-        for particle_id in states["particles"]:
+        for particle_id in monomers["particles"]:
             if particle_id in topology_particle_ids:
                 continue
-            particle = states["particles"][particle_id]
+            particle = monomers["particles"][particle_id]
             self.simulation.add_particle(
                 type=particle["type_name"], position=particle["position"]
             )
