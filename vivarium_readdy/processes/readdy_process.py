@@ -285,18 +285,19 @@ class ReaddyProcess(Process):
         edges = self.current_particle_edges()
         for index, topology in enumerate(self.simulation.current_topologies):
             particle_ids = []
-            for p in topology.particles:
-                particle_ids.append(p.id)
+            for p_ix, particle in enumerate(topology.particles):
+                particle_ids.append(particle.id)
                 neighbor_ids = []
                 for edge in edges:
-                    if p.id == edge[0]:
+                    if particle.id == edge[0]:
                         neighbor_ids.append(edge[1])
-                    elif p.id == edge[1]:
+                    elif particle.id == edge[1]:
                         neighbor_ids.append(edge[0])
-                result["particles"][p.id] = {
-                    "type_name": p.type,
-                    "position": p.pos,
+                result["particles"][p_ix] = {
+                    "type_name": particle.type,
+                    "position": particle.pos,
                     "neighbor_ids": neighbor_ids,
+                    "radius": self.parameters["particle_radii"].get(particle.type, 1.0),
                 }
             result["topologies"][index] = {
                 "type_name": topology.type,
@@ -304,10 +305,11 @@ class ReaddyProcess(Process):
             }
         # non-topology particles
         for index, particle in enumerate(self.simulation.current_particles):
-            result["particles"][p.id] = {
-                "type_name": p.type,
-                "position": p.pos,
+            result["particles"][index] = {
+                "type_name": particle.type,
+                "position": particle.pos,
                 "neighbor_ids": [],
+                "radius": self.parameters["particle_radii"].get(particle.type, 1.0),
             }
         return result
 
@@ -339,6 +341,7 @@ class ReaddyProcess(Process):
                 "type_name": "C",
                 "position": position,
                 "neighbor_ids": [],
+                "radius": 2.0,
             }
             last_id += 1
         # inert chain particles
@@ -355,6 +358,7 @@ class ReaddyProcess(Process):
                 "type_name": "D",
                 "position": chain_position,
                 "neighbor_ids": neighbor_ids,
+                "radius": 4.0,
             }
             chain_particle_ids.append(particle_id)
             chain_position += 2 * chain_particle_radius * np.random.uniform(3)
