@@ -1,10 +1,13 @@
 import numpy as np
 
 from vivarium.core.process import Process
-from vivarium.core.engine import Engine, pf
+from vivarium.core.engine import Engine
 
 from tqdm import tqdm
 import readdy
+from pint import UnitRegistry
+
+from ..util import monomer_ports_schema, create_monomer_update
 
 NAME = "READDY"
 
@@ -18,96 +21,37 @@ class ReaddyProcess(Process):
     name = NAME
 
     defaults = {
-        "internal_timestep": 0.1,  # s
-        "box_size": 100.0,  # m
+        "internal_timestep": 0.1,
+        "box_size": 100.0,
         "periodic_boundary": False,
         "temperature_C": 22.0,
-        "viscosity": 8.1,  # cP, viscosity in cytoplasm
+        "viscosity": 1.0,  # cP
         "force_constant": 250.0,
         "n_cpu": 4,
         "particle_radii": {},
+        "topology_types": [],
         "topology_particles": [],
+        "bond_pairs": [],
         "reactions": [],
+        "time_units": "s",
+        "spatial_units": "m",
     }
 
     def __init__(self, parameters=None):
         super(ReaddyProcess, self).__init__(parameters)
+        self.create_readdy_system()
 
     def ports_schema(self):
-        return {
-            "box_size": {
-                "_default": 100.0,
-                "_updater": "set",
-                "_emit": True,
-            },
-            "topologies": {
-                "*": {
-                    "type_name": {
-                        "_default": "",
-                        "_updater": "set",
-                        "_emit": True,
-                    },
-                    "particle_ids": {
-                        "_default": [],
-                        "_updater": "set",
-                        "_emit": True,
-                    },
-                }
-            },
-            "particles": {
-                "*": {
-                    "type_name": {
-                        "_default": "",
-                        "_updater": "set",
-                        "_emit": True,
-                    },
-                    "position": {
-                        "_default": np.zeros(3),
-                        "_updater": "set",
-                        "_emit": True,
-                    },
-                    "neighbor_ids": {
-                        "_default": [],
-                        "_updater": "set",
-                        "_emit": True,
-                    },
-                }
-            },
-        }
+        return monomer_ports_schema
 
     def next_update(self, timestep, states):
-        self.create_readdy_system(states)
         self.create_readdy_simulation()
-        self.add_particle_instances(states)
+        self.add_particle_instances(states["monomers"])
         self.simulate_readdy(timestep)
-        current_state = self.get_current_state()
-        # update topologies
-        topologies_update = {"_add": [], "_delete": []}
-        for id, state in current_state["topologies"].items():
-            if id in states["topologies"]:
-                topologies_update[id] = state
-            else:
-                topologies_update["_add"].append({"key": id, "state": state})
-        for existing_id in states["topologies"].keys():
-            if existing_id not in current_state["topologies"]:
-                topologies_update["_delete"].append(existing_id)
-        # update particles
-        particles_update = {"_add": [], "_delete": []}
-        for id, state in current_state["particles"].items():
-            if id in states["particles"]:
-                particles_update[id] = state
-            else:
-                particles_update["_add"].append({"key": id, "state": state})
-        for existing_id in states["particles"].keys():
-            if existing_id not in current_state["particles"]:
-                particles_update["_delete"].append(existing_id)
-        return {
-            "box_size": states["box_size"],
-            "topologies": topologies_update,
-            "particles": particles_update,
-        }
+        new_monomers = self.get_current_monomers()
+        return create_monomer_update(states["monomers"], new_monomers)
 
-    def create_readdy_system(self, states):
+    def create_readdy_system(self):
         """
         Create the ReaDDy system
         including particle species, constraints, and reactions
@@ -120,30 +64,30 @@ class ReaddyProcess(Process):
         self.parameters["temperature_K"] = self.parameters["temperature_C"] + 273.15
         self.system.temperature = self.parameters["temperature_K"]
         self.add_particle_species()
-        self.add_topology_types(states)
-        all_particle_types = set()
-        for particle_id in states["particles"]:
-            particle = states["particles"][particle_id]
-            all_particle_types.add(particle["type_name"])
-        self.check_add_global_box_potential(states, all_particle_types)
+        self.add_topology_types()
+        all_particle_types = self.parameters["particle_radii"].keys()
+        self.check_add_global_box_potential(all_particle_types)
         self.add_repulsions(all_particle_types)
-        self.add_bonds(states)
+        self.add_bonds()
         self.add_reactions()
 
     @staticmethod
-    def calculate_diffusionCoefficient(radius, eta, T):
+    def calculate_diffusionCoefficient(radius, viscosity, temperature, spatial_units):
         """
         calculate the theoretical diffusion constant of a spherical particle
-            with radius [m]
-            in a media with viscosity eta [cP]
-            at temperature T [Kelvin]
+            with radius [spatial_units]
+            in a media with viscosity [cP]
+            at temperature [Kelvin]
 
-            returns m^2/s
+            returns [spatial_units^2/s]
         """
+        ureg = UnitRegistry()
+        convert_to_nm = ureg(spatial_units).to("m").magnitude
         return (
-            (1.38065 * 10 ** (-23) * T)
-            / (6 * np.pi * eta * 10 ** (-3) * radius * 10 ** (-9))
+            (1.38065 * 10 ** (-23) * temperature)
+            / (6 * np.pi * viscosity * 10 ** (-3) * radius * convert_to_nm)
             / 10**9
+            / (convert_to_nm * convert_to_nm)
         )
 
     def add_particle_species(self):
@@ -158,6 +102,7 @@ class ReaddyProcess(Process):
                 self.parameters["particle_radii"][particle_name],
                 self.parameters["viscosity"],
                 self.parameters["temperature_K"],
+                self.parameters["spatial_units"],
             )
             if particle_name in self.parameters["topology_particles"]:
                 self.system.add_topology_species(particle_name, diffCoeff)
@@ -165,17 +110,14 @@ class ReaddyProcess(Process):
                 self.system.add_species(particle_name, diffCoeff)
             added_particle_types.append(particle_name)
 
-    def add_topology_types(self, states):
+    def add_topology_types(self):
         """
         Add all topology types
         """
-        topology_types = set()
-        for topology_id in states["topologies"]:
-            topology_types.add(states["topologies"][topology_id]["type_name"])
-        for topology_type in topology_types:
+        for topology_type in self.parameters["topology_types"]:
             self.system.topologies.add_type(topology_type)
 
-    def check_add_global_box_potential(self, states, all_particle_types):
+    def check_add_global_box_potential(self, all_particle_types):
         """
         If the boundaries are not periodic,
         add a box potential for all particles
@@ -199,51 +141,31 @@ class ReaddyProcess(Process):
         to enforce volume exclusion
         """
         for type1 in all_particle_types:
-            if type1 not in self.parameters["particle_radii"]:
-                raise Exception(
-                    "Please provide a radius for particle type "
-                    f"{type1} in parameters['particle_radii']"
-                )
             for type2 in all_particle_types:
-                if type2 not in self.parameters["particle_radii"]:
-                    raise Exception(
-                        "Please provide a radius for particle type "
-                        f"{type1} in parameters['particle_radii']"
-                    )
                 self.system.potentials.add_harmonic_repulsion(
                     type1,
                     type2,
                     force_constant=self.parameters["force_constant"],
                     interaction_distance=(
-                        self.parameters["particle_radii"][type1]
-                        + self.parameters["particle_radii"][type2]
+                        self.parameters["particle_radii"].get(type1, 1.0)
+                        + self.parameters["particle_radii"].get(type2, 1.0)
                     ),
                 )
 
-    def add_bonds(self, states):
+    def add_bonds(self):
         """
         Add harmonic bonds
         """
-        added_bonds = []
-        for particle_id in states["particles"]:
-            particle = states["particles"][particle_id]
-            for neighbor_id in particle["neighbor_ids"]:
-                neighbor = states["particles"][neighbor_id]
-                type1 = particle["type_name"]
-                type2 = neighbor["type_name"]
-                if (type1, type2) in added_bonds or (type2, type1) in added_bonds:
-                    continue
-                self.system.topologies.configure_harmonic_bond(
-                    type1,
-                    type2,
-                    force_constant=self.parameters["force_constant"],
-                    length=(
-                        self.parameters["particle_radii"][type1]
-                        + self.parameters["particle_radii"][type2]
-                    ),
-                )
-                added_bonds.append((type1, type2))
-                added_bonds.append((type2, type1))
+        for bond_pair in self.parameters["bond_pairs"]:
+            self.system.topologies.configure_harmonic_bond(
+                bond_pair[0],
+                bond_pair[1],
+                force_constant=self.parameters["force_constant"],
+                length=(
+                    self.parameters["particle_radii"].get(bond_pair[0], 1.0)
+                    + self.parameters["particle_radii"].get(bond_pair[1], 1.0)
+                ),
+            )
 
     def add_reactions(self):
         """
@@ -259,19 +181,19 @@ class ReaddyProcess(Process):
         self.simulation = self.system.simulation("CPU")
         self.simulation.kernel_configuration.n_threads = self.parameters["n_cpu"]
 
-    def add_particle_instances(self, states):
+    def add_particle_instances(self, monomers):
         """
         Add particle instances to the simulation
         """
         # add topology particles
         topology_particle_ids = []
-        for topology_id in states["topologies"]:
-            topology = states["topologies"][topology_id]
+        for topology_id in monomers["topologies"]:
+            topology = monomers["topologies"][topology_id]
             topology_particle_ids += topology["particle_ids"]
             types = []
             positions = []
             for particle_id in topology["particle_ids"]:
-                particle = states["particles"][particle_id]
+                particle = monomers["particles"][particle_id]
                 types.append(particle["type_name"])
                 positions.append(particle["position"])
             top = self.simulation.add_topology(
@@ -279,7 +201,7 @@ class ReaddyProcess(Process):
             )
             added_edges = []
             for index, particle_id in enumerate(topology["particle_ids"]):
-                for neighbor_id in states["particles"][particle_id]["neighbor_ids"]:
+                for neighbor_id in monomers["particles"][particle_id]["neighbor_ids"]:
                     neighbor_index = topology["particle_ids"].index(neighbor_id)
                     if (index, neighbor_index) not in added_edges and (
                         neighbor_index,
@@ -290,10 +212,10 @@ class ReaddyProcess(Process):
                     added_edges.append((index, neighbor_index))
                     added_edges.append((neighbor_index, index))
         # add non-topology particles
-        for particle_id in states["particles"]:
+        for particle_id in monomers["particles"]:
             if particle_id in topology_particle_ids:
                 continue
-            particle = states["particles"][particle_id]
+            particle = monomers["particles"][particle_id]
             self.simulation.add_particle(
                 type=particle["type_name"], position=particle["position"]
             )
@@ -332,7 +254,7 @@ class ReaddyProcess(Process):
                 calculate_forces()
                 observe(t)
 
-        self.simulation._run_custom_loop(loop)
+        self.simulation._run_custom_loop(loop, show_summary=False)
 
     def current_particle_edges(self):
         """
@@ -349,7 +271,7 @@ class ReaddyProcess(Process):
                     result.append((p1_id, p2_id))
         return result
 
-    def get_current_state(self):
+    def get_current_monomers(self):
         """
         Get data for topologies of particles
         from readdy.simulation.current_topologies
@@ -363,18 +285,19 @@ class ReaddyProcess(Process):
         edges = self.current_particle_edges()
         for index, topology in enumerate(self.simulation.current_topologies):
             particle_ids = []
-            for p in topology.particles:
-                particle_ids.append(p.id)
+            for p_ix, particle in enumerate(topology.particles):
+                particle_ids.append(particle.id)
                 neighbor_ids = []
                 for edge in edges:
-                    if p.id == edge[0]:
+                    if particle.id == edge[0]:
                         neighbor_ids.append(edge[1])
-                    elif p.id == edge[1]:
+                    elif particle.id == edge[1]:
                         neighbor_ids.append(edge[0])
-                result["particles"][p.id] = {
-                    "type_name": p.type,
-                    "position": p.pos,
+                result["particles"][p_ix] = {
+                    "type_name": particle.type,
+                    "position": particle.pos,
                     "neighbor_ids": neighbor_ids,
+                    "radius": self.parameters["particle_radii"].get(particle.type, 1.0),
                 }
             result["topologies"][index] = {
                 "type_name": topology.type,
@@ -382,10 +305,11 @@ class ReaddyProcess(Process):
             }
         # non-topology particles
         for index, particle in enumerate(self.simulation.current_particles):
-            result["particles"][p.id] = {
-                "type_name": p.type,
-                "position": p.pos,
+            result["particles"][index] = {
+                "type_name": particle.type,
+                "position": particle.pos,
                 "neighbor_ids": [],
+                "radius": self.parameters["particle_radii"].get(particle.type, 1.0),
             }
         return result
 
@@ -417,6 +341,7 @@ class ReaddyProcess(Process):
                 "type_name": "C",
                 "position": position,
                 "neighbor_ids": [],
+                "radius": 2.0,
             }
             last_id += 1
         # inert chain particles
@@ -433,22 +358,25 @@ class ReaddyProcess(Process):
                 "type_name": "D",
                 "position": chain_position,
                 "neighbor_ids": neighbor_ids,
+                "radius": 4.0,
             }
             chain_particle_ids.append(particle_id)
             chain_position += 2 * chain_particle_radius * np.random.uniform(3)
         return {
-            "box_size": box_size,
-            "topologies": {
-                0: {
-                    "type_name": "Chain",
-                    "particle_ids": chain_particle_ids,
-                }
+            "monomers": {
+                "box_size": box_size,
+                "topologies": {
+                    0: {
+                        "type_name": "Chain",
+                        "particle_ids": chain_particle_ids,
+                    }
+                },
+                "particles": particles,
             },
-            "particles": particles,
         }
 
 
-def test_readdy_process():
+def run_readdy_process():
     readdy_process = ReaddyProcess(
         {
             "particle_radii": {
@@ -457,8 +385,14 @@ def test_readdy_process():
                 "C": 2.0,
                 "D": 4.0,
             },
+            "topology_types": [
+                "Chain",
+            ],
             "topology_particles": [
                 "D",
+            ],
+            "bond_pairs": [
+                ["D", "D"],
             ],
             "reactions": [
                 {
@@ -468,22 +402,15 @@ def test_readdy_process():
             ],
         }
     )
+    composite = readdy_process.generate()
     engine = Engine(
-        processes={"readdy": readdy_process},
-        topology={
-            "readdy": {
-                "box_size": ("box_size",),
-                "topologies": ("topologies",),
-                "particles": ("particles",),
-            }
-        },
+        composite=composite,
         initial_state=readdy_process.initial_state(),
         emitter="simularium",
     )
     engine.update(1.0)  # 10 steps
-    output = engine.emitter.get_data()
-    print(pf(output))
+    engine.emitter.get_data()
 
 
 if __name__ == "__main__":
-    test_readdy_process()
+    run_readdy_process()
