@@ -18,7 +18,7 @@ from .util import monomer_ports_schema  # noqa: F401
 from .util import create_monomer_update  # noqa: F401
 from .util import agents_update  # noqa: F401
 
-from .processes.simularium_emitter import SimulariumEmitter  # noqa: F401
+from .processes.simularium_monomer_emitter import SimulariumMonomerEmitter  # noqa: F401
 from vivarium.core.registry import emitter_registry
 
-emitter_registry.register("simularium", SimulariumEmitter)
+emitter_registry.register("simularium_monomers", SimulariumMonomerEmitter)
